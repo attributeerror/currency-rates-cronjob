@@ -13,8 +13,7 @@ RUN ln -s ld-musl-x86_64.so.1 /dist/lib/libc.musl-x86_64.so.1
 
 FROM scratch AS runner
 
-RUN mkdir -p /tmp/
-
+COPY --from=builder /tmp /tmp
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /dist /
 
