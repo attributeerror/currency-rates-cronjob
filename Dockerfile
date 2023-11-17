@@ -1,11 +1,11 @@
-FROM golang:1.21.4-alpine3.18 AS build-env 
+FROM golang:1.21.4 AS build-env 
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY *.go ./
+COPY ./ ./
 
 RUN CGO_ENABLED=1 GOOS=linux go build -o ./currency-rates-cronjob
 
