@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/attributeerror/currency-rates-cronjob/database"
-	"github.com/attributeerror/currency-rates-cronjob/fixerio"
+	"github.com/attributeerror/currency-rates-cronjob/repositories"
 	"github.com/bradhe/stopwatch"
 	"github.com/joho/godotenv"
 	"github.com/pkg/errors"
@@ -27,7 +27,16 @@ func main() {
 	}
 	defer database.Close()
 
-	fixerIoRepository, err := fixerio.InitFixerIoRepository("http://data.fixer.io/api", os.Getenv("FIXERIO_KEY"), nil)
+	fixerIoKey, err := loadEnvVar("FIXERIO_KEY", WithIsRequired(true))
+	if err != nil {
+		if (errors.Is(err, EnvVarNotFoundError{})) {
+			panic(err)
+		}
+
+		panic(fmt.Errorf("an error occurred whilst trying to load environment variable %s: %w", "FIXERIO_KEY", err))
+	}
+
+	fixerIoRepository, err := repositories.InitFixerIoRepository("http://data.fixer.io/api", *fixerIoKey, nil)
 	if err != nil {
 		panic(fmt.Errorf("error whilst initialising fixer.io repository: %w", err))
 	}
@@ -38,16 +47,18 @@ func main() {
 }
 
 func initDatabase() (*database.TursoDatabase, error) {
-	primaryUrl := os.Getenv("TURSO_URL")
-	if primaryUrl == "" {
-		return nil, errors.New("TURSO_URL environment variable is not set")
+	primaryUrl, err := loadEnvVar("TURSO_URL", WithIsRequired(true))
+	if err != nil {
+		return nil, err
 	}
-	authToken := os.Getenv("TURSO_AUTH_TOKEN")
-	if authToken == "" {
-		return nil, errors.New("TURSO_AUTH_TOKEN environment variable is not set")
+	authToken, err := loadEnvVar("TURSO_AUTH_TOKEN", WithIsRequired(true))
+	if err != nil {
+		return nil, err
 	}
 
-	database, err := database.InitTursoDatabase(primaryUrl, authToken, "currency-rates", 1*time.Minute)
+	dbName, _ := loadEnvVar("TURSO_DB_NAME", WithIsRequired(false), WithDefaultValue("currency-rates"))
+
+	database, err := database.InitTursoDatabase(*primaryUrl, *authToken, *dbName, 1*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -55,43 +66,52 @@ func initDatabase() (*database.TursoDatabase, error) {
 	return database, err
 }
 
-func run(database database.Database, fixerIoRepository fixerio.FixerIoRepository) (err error) {
-	needToUpdate := false
+func run(db database.Database, fixerIoRepository repositories.CurrencyRatesRepository) (err error) {
+	stopwatch := stopwatch.Start()
 
-	if needToUpdate {
-		stopwatch := stopwatch.Start()
+	latestResponse, err := fixerIoRepository.GetLatestRates()
+	if err != nil {
+		return err
+	}
 
-		latestResponse, err := fixerIoRepository.GetLatestRates()
+	stopwatch.Stop()
+
+	fmt.Printf("--- FIXER.IO RESPONSE (fetched in %dms) ---\n", stopwatch.Milliseconds())
+	for key, val := range latestResponse.Rates {
+		fmt.Println("1 EUR ->", key, "=", val, key)
+	}
+
+	stopwatch = stopwatch.Start()
+
+	success, err := db.SetCurrencyRates(latestResponse.Rates)
+	if err != nil {
+		return err
+	}
+
+	stopwatch.Stop()
+
+	if success {
+		fmt.Printf("database records updated in %dms\n", stopwatch.Milliseconds())
+	} else {
+		fmt.Println("unknown error occurred whilst updating database records...")
+	}
+
+	stopwatch = stopwatch.Start()
+
+	if tursoDb, ok := db.(*database.TursoDatabase); ok {
+		err = tursoDb.SyncEmbeddedReplica()
+
 		if err != nil {
 			return err
-		}
-
-		stopwatch.Stop()
-
-		fmt.Printf("--- FIXER.IO RESPONSE (fetched in %dms) ---\n", stopwatch.Milliseconds())
-		for key, val := range latestResponse.Rates {
-			fmt.Println("1 EUR ->", key, "=", val, key)
-		}
-
-		stopwatch = stopwatch.Start()
-
-		success, err := database.SetCurrencyRates(latestResponse.Rates)
-		if err != nil {
-			return err
-		}
-
-		stopwatch.Stop()
-
-		if success {
-			fmt.Printf("database records updated in %dms\n", stopwatch.Milliseconds())
-		} else {
-			fmt.Println("unknown error occurred whilst updating database records...")
 		}
 	}
 
-	stopwatch := stopwatch.Start()
+	stopwatch.Stop()
+	fmt.Printf("synced embedded replica in %dms", stopwatch.Milliseconds())
 
-	currencyRates, err := database.GetCurrencyRates()
+	stopwatch = stopwatch.Start()
+
+	currencyRates, err := db.GetCurrencyRates()
 	if err != nil {
 		return err
 	}
@@ -105,4 +125,23 @@ func run(database database.Database, fixerIoRepository fixerio.FixerIoRepository
 	}
 
 	return nil
+}
+
+func loadEnvVar(envVar string, options ...EnvVarOption) (*string, error) {
+	opts := &EnvVarOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
+	if value, exists := os.LookupEnv(envVar); exists {
+		return &value, nil
+	} else if opts.Required {
+		return nil, &EnvVarNotFoundError{
+			envVar,
+		}
+	} else if opts.DefaultValue != "" {
+		return &opts.DefaultValue, nil
+	}
+
+	return nil, nil
 }

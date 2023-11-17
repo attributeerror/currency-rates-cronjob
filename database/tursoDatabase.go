@@ -62,6 +62,10 @@ func (db *TursoDatabase) ExecContext(context context.Context, query string, args
 	return db.Db.ExecContext(context, query, args...)
 }
 
+func (db *TursoDatabase) SyncEmbeddedReplica() error {
+	return db.connector.Sync()
+}
+
 func (db *TursoDatabase) GetCurrencyRates() (map[string]float64, error) {
 	currencyRates := make(map[string]float64)
 
@@ -88,8 +92,6 @@ func (db *TursoDatabase) GetCurrencyRates() (map[string]float64, error) {
 			return nil, err
 		}
 
-		// fmt.Printf("%s: %s\n", code, toEuroRate)
-
 		euroFloat, err := strconv.ParseFloat(toEuroRate, 64)
 		if err != nil {
 			return nil, fmt.Errorf("error whilst parsing float: %w", err)
@@ -106,7 +108,6 @@ func (db *TursoDatabase) GetCurrencyRates() (map[string]float64, error) {
 func (db *TursoDatabase) SetCurrencyRates(currencyRates map[string]float64) (bool, error) {
 	for code, eurRate := range currencyRates {
 		eurRate = (eurRate * 100) / 100
-		fmt.Printf("processing 1 %s = %f EUR\n", code, eurRate)
 
 		sqlStmt := fmt.Sprintf("SELECT 1 FROM %s WHERE code = '%s'", db.tableName, code)
 		var exists int32

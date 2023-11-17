@@ -1,4 +1,4 @@
-package fixerio
+package repositories
 
 import (
 	"encoding/json"
@@ -21,17 +21,6 @@ type (
 		Date string `json:"date,omitempty"`
 		// Rates is the key-value map, mapped by currency code, of the current rates
 		Rates map[string]float64 `json:"rates,omitempty"`
-	}
-
-	FixerIoRepository interface {
-		GetLatestRates() (*FixerIoResponse, error)
-		GetLatestRatesWithCurrencyList(currencies []string) (*FixerIoResponse, error)
-	}
-
-	fixerIoRespository struct {
-		baseUrl    string
-		apiKey     string
-		httpClient *http.Client
 	}
 )
 
