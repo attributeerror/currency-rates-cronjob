@@ -13,6 +13,7 @@ RUN ln -s ld-musl-x86_64.so.1 /dist/lib/libc.musl-x86_64.so.1
 
 FROM scratch AS runner
 
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /dist /
 
 ENTRYPOINT [ "/app" ]
